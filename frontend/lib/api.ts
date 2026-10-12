@@ -19,7 +19,18 @@ export async function searchAnime(q: string, page = 0, sort = 'views'): Promise<
 }
 export async function getDetail(id: string): Promise<Anime> { return (await request<{data: Anime}>('/anime/' + encodeURIComponent(id))).data; }
 export async function getEpisodes(id: string): Promise<Episode[]> { return (await request<{data: Episode[]}>('/anime/' + encodeURIComponent(id) + '/episodes')).data || []; }
-export function imageUrl(src?: string | null) { return src || ''; }
+export function imageUrl(src?: string | null) {
+  if (!src) return '';
+  try {
+    const parsed = new URL(src);
+    // Route external AnimeIn artwork through our API so remote hotlink/CORS policies
+    // don't break poster rendering in the browser. The backend allowlists hosts.
+    if (parsed.protocol === 'https:' && (parsed.hostname === 'xyz-api.animein.net' || parsed.hostname === 'animeinweb.com' || parsed.hostname.endsWith('.animeinweb.com'))) {
+      return `${BASE}/image?url=${encodeURIComponent(parsed.toString())}`;
+    }
+  } catch { /* preserve non-URL image paths */ }
+  return src;
+}
 export type StreamServer = { id: string | number; name?: string; quality?: string; type?: string; url?: string; file_size_mb?: number | null };
 export async function getStream(id: string): Promise<{ episode?: { id: string | number; title?: string; episode_number?: number | string; next_episode_id?: string | number | null }; servers: StreamServer[] }> {
   return request<{ episode?: { id: string | number; title?: string; episode_number?: number | string; next_episode_id?: string | number | null }; servers: StreamServer[] }>('/episode/' + encodeURIComponent(id) + '/stream');

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import axios from 'axios';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -15,6 +16,26 @@ app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes('*') 
 app.use(express.json({ limit: '32kb' }));
 app.use('/api', rateLimit({ windowMs: 60_000, limit: 90, standardHeaders: 'draft-7', legacyHeaders: false, message: { status: false, error: 'Terlalu banyak request. Coba lagi sebentar.' } }));
 app.get('/health', (_req, res) => res.json({ status: true, service: 'AnimID API', timestamp: new Date().toISOString() }));
+// Safe image proxy for AnimeIn artwork. Only known image hosts are accepted.
+app.get('/api/image', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '');
+    const parsed = new URL(raw);
+    const allowed = parsed.protocol === 'https:' && (parsed.hostname === 'xyz-api.animein.net' || parsed.hostname === 'animeinweb.com' || parsed.hostname.endsWith('.animeinweb.com'));
+    if (!allowed) return res.status(400).json({ status: false, error: 'Host gambar tidak diizinkan.' });
+    const response = await axios.get(parsed.toString(), { responseType: 'stream', timeout: 12000, maxRedirects: 3, headers: { 'User-Agent': 'Mozilla/5.0 AnimID/1.0', Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8' }, validateStatus: status => status >= 200 && status < 300 });
+    const contentType = String(response.headers['content-type'] || '');
+    if (!contentType.startsWith('image/')) { response.data.destroy(); return res.status(415).json({ status: false, error: 'Sumber tidak mengembalikan gambar.' }); }
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    response.data.on('error', () => { if (!res.headersSent) res.status(502); res.end(); });
+    response.data.pipe(res);
+  } catch (e) {
+    console.warn('[image-proxy]', e?.message || e);
+    if (!res.headersSent) res.status(502).json({ status: false, error: 'Gambar tidak dapat dimuat.' });
+  }
+});
 app.get('/api/anime/home', async (req, res) => { try { const r = await scraper.getHome(typeof req.query.day === 'string' ? req.query.day : null); res.json(r); } catch (e) { fail(res, e); } });
 app.get('/api/anime/search', async (req, res) => { try { const q = String(req.query.q || '').trim().slice(0, 120); if (!q) return res.status(400).json({ status: false, error: 'Kata kunci pencarian wajib diisi.' }); const page = safePage(req.query.page); const sort = safeSort(req.query.sort); res.json(await scraper.search(q, page, sort)); } catch (e) { fail(res, e); } });
 app.get('/api/anime/latest', async (req, res) => { try { res.json(await scraper.getLatest(safePage(req.query.page))); } catch (e) { fail(res, e); } });
