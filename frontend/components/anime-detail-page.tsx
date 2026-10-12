@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Heart, Bookmark, Play, CalendarDays, Eye, ListVideo } from 'lucide-react';
-import { getDetail, getEpisodes } from '@/lib/api';
+import { getDetail, getEpisodes, imageUrl } from '@/lib/api';
 import type { Anime, Episode } from '@/lib/types';
 import { isInCollection, toggleCollection } from '@/lib/storage';
 import { AnimeComments } from './anime-comments';
