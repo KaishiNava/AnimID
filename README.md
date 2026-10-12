@@ -38,3 +38,11 @@ Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`.
 - The UI, search, favorite/watchlist toggles, and Supabase auth foundation are implemented as a starter.
 - Admin/premium/giveaway/payment workflows need secure server-side transaction logic before production use; do not treat client-only UI as authorization.
 - Streaming source availability and use must comply with the source site's terms and applicable distribution rights. This app does not proxy or download video files; it only returns metadata and available stream links from the configured source.
+
+## Update komunitas & player
+
+- Halaman detail anime kini memiliki komponen komentar (login Supabase diperlukan) dan daftar giveaway Premium.
+- Player mencoba `<video>` untuk URL media langsung (`mp4`, `webm`, `ogg`) dan iframe untuk URL HTTPS lain. Sebagian penyedia memblokir iframe; gunakan tautan sumber jika begitu.
+- Jalankan ulang seluruh `supabase/schema.sql` di SQL Editor Supabase setelah backup database. Schema menambah `profiles.is_verified`, fungsi klaim giveaway atomik, dan fungsi penghitung klaim.
+- Badge biru yang tampil adalah badge komunitas **AnimID**, bukan verifikasi resmi dari Meta. Untuk akun staf yang sudah diverifikasi, admin database harus mengatur `profiles.is_verified = true` untuk UUID akun yang benar. Jangan berikan hak update kolom tersebut kepada pengguna biasa.
+- Giveaway harus dibuat oleh admin melalui dashboard/SQL tepercaya; UI ini hanya menampilkan giveaway aktif dan memanggil fungsi klaim aman. Dashboard admin/pembelian pembayaran belum disediakan oleh starter ini.

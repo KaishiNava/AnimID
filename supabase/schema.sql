@@ -10,12 +10,15 @@ create table if not exists public.profiles (
   banner_url text,
   border_key text not null default 'default',
   title_key text not null default 'member',
+  is_verified boolean not null default false,
   level integer not null default 1 check (level >= 1),
   exp bigint not null default 0 check (exp >= 0),
   coins bigint not null default 0 check (coins >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles add column if not exists is_verified boolean not null default false;
 
 create table if not exists public.user_roles (
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -293,3 +296,61 @@ for each row execute procedure public.handle_new_user();
 -- Restrict profile updates to user-editable columns; role/EXP/coins remain server-managed.
 revoke update on public.profiles from anon, authenticated;
 grant update (username, display_name, bio, avatar_url, updated_at) on public.profiles to authenticated;
+
+-- AnimID verified staff badge: only privileged SQL/service-side actions should set this flag.
+-- Example for a known staff account: update public.profiles set is_verified = true where id = '<auth-user-uuid>';
+-- Never expose a public client update policy for is_verified, role, coins, EXP, or Premium expiry.
+
+-- Atomic Premium giveaway claim. Locks the giveaway row so concurrent claims cannot exceed max_claims.
+create or replace function public.claim_premium_giveaway(p_giveaway_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_giveaway public.giveaways%rowtype;
+  v_claim_count integer;
+  v_verified boolean;
+  v_base timestamptz;
+  v_expiry timestamptz;
+begin
+  if v_user is null then
+    raise exception 'LOGIN_REQUIRED';
+  end if;
+  select * into v_giveaway from public.giveaways where id = p_giveaway_id for update;
+  if not found or not v_giveaway.active then raise exception 'GIVEAWAY_NOT_ACTIVE'; end if;
+  if now() < v_giveaway.starts_at or now() >= v_giveaway.ends_at then raise exception 'GIVEAWAY_CLOSED'; end if;
+  select (coalesce(p.is_verified, false) or p.title_key in ('admin','owner','moderator')) into v_verified
+  from public.profiles p where p.id = v_user;
+  if v_giveaway.verified_only and not coalesce(v_verified, false) then raise exception 'VERIFICATION_REQUIRED'; end if;
+  if exists (select 1 from public.giveaway_claims where giveaway_id = p_giveaway_id and user_id = v_user) then raise exception 'ALREADY_CLAIMED'; end if;
+  select count(*) into v_claim_count from public.giveaway_claims where giveaway_id = p_giveaway_id;
+  if v_claim_count >= v_giveaway.max_claims then raise exception 'GIVEAWAY_FULL'; end if;
+  insert into public.giveaway_claims(giveaway_id, user_id) values (p_giveaway_id, v_user);
+  select greatest(now(), coalesce(max(expires_at), now())) into v_base from public.premium_subscriptions where user_id = v_user;
+  v_expiry := v_base + make_interval(days => v_giveaway.premium_days);
+  insert into public.premium_subscriptions(user_id, starts_at, expires_at, source)
+  values (v_user, v_base, v_expiry, 'giveaway');
+  if v_claim_count + 1 >= v_giveaway.max_claims then update public.giveaways set active = false where id = p_giveaway_id; end if;
+  return jsonb_build_object('success', true, 'expires_at', v_expiry, 'premium_days', v_giveaway.premium_days);
+end;
+$$;
+revoke all on function public.claim_premium_giveaway(uuid) from public, anon;
+grant execute on function public.claim_premium_giveaway(uuid) to authenticated;
+
+create or replace function public.get_giveaway_claim_counts(p_giveaway_ids uuid[])
+returns table(giveaway_id uuid, claim_count bigint)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select c.giveaway_id, count(*)::bigint
+  from public.giveaway_claims c
+  where c.giveaway_id = any(p_giveaway_ids)
+  group by c.giveaway_id;
+$$;
+revoke all on function public.get_giveaway_claim_counts(uuid[]) from public;
+grant execute on function public.get_giveaway_claim_counts(uuid[]) to anon, authenticated;
