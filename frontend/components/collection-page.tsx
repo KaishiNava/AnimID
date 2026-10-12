@@ -1,0 +1,8 @@
+'use client';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { Bookmark, Heart, Compass } from 'lucide-react';
+import type { Anime } from '@/lib/types';
+import { readCollection } from '@/lib/storage';
+import { AnimeCard } from './anime-card';
+export function CollectionPage({kind}:{kind:'favorites'|'watchlist'}){const [items,setItems]=useState<Anime[]>([]);useEffect(()=>{const update=()=>setItems(readCollection(kind));update();window.addEventListener('animid:collections-changed',update);window.addEventListener('storage',update);return()=>{window.removeEventListener('animid:collections-changed',update);window.removeEventListener('storage',update)}},[kind]);const fav=kind==='favorites';const Icon=fav?Heart:Bookmark;return <><div className="page-heading"><span className="eyebrow"><Icon size={14}/> KOLEKSI PRIBADI</span><h1>{fav?'Anime favorit':'Watchlist'}<span>.</span></h1><p>{fav?'Kumpulan anime yang paling kamu suka.':'Simpan anime yang ingin kamu tonton berikutnya.'}</p></div>{items.length?<><div className="results-line"><span>{items.length} anime tersimpan</span><span>Disimpan di perangkat ini</span></div><div className="anime-grid explore-grid">{items.map((a,i)=><AnimeCard key={`${a.id}-${i}`} anime={a}/>)}</div></>:<div className="empty-state"><div className="empty-icon"><Icon size={24}/></div><h3>{fav?'Belum ada favorit':'Watchlist masih kosong'}</h3><p>Buka halaman anime lalu tekan ikon {fav?'hati':'bookmark'} untuk menyimpannya di sini.</p><Link className="button-primary" href="/explore"><Compass size={16}/> Jelajahi anime</Link></div>}</>}
